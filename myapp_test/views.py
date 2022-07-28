@@ -1,6 +1,6 @@
 from django.shortcuts import render,redirect
 from django.http import HttpResponse
-from .models import Room, Topic
+from .models import Room, Topic, Message
 from .forms import RoomForm
 from django.db.models import Q
 from django.contrib.auth.models import User
@@ -18,7 +18,7 @@ def login_page(request):
         return redirect('home')
 
     if request.method == 'POST':
-        username=request.POST.get('username')
+        username=request.POST.get('username').lower()
         password = request.POST.get('Password')
         print(username,password)
         try:
@@ -47,6 +47,10 @@ def register_user(request):
             user = form.save(commit=False)
             user.username=user.username.lower()
             user.save()
+            login(request,user)
+            return redirect('home')
+        else:
+            messages.error(request,"An error occurred during registration")
     return render (request,'myapp_test/login_register.html',{'form':form})
 
 def home(request):
@@ -58,13 +62,25 @@ def home(request):
     )
     topics = Topic.objects.all()
     room_count=rooms.count()
-    context ={'rooms':rooms, 'topics':topics, 'room_count':room_count}
+    room_message = Message.objects.all()
+    context ={'rooms':rooms, 'topics':topics, 'room_count':room_count,'room_message':room_message}
     return render(request,'myapp_test/home.html',context)
 
 
 def room(request,pk):
     room = Room.objects.get(id=pk)
-    context = {'room': room}
+    room_messages=room.message_set.all().order_by('-created')
+    participants=room.participants.all()
+    if request.method=='POST':
+        message=Message.objects.create(
+            user=request.user,
+            room=room,
+            body=request.POST.get('body')
+        )
+        room.participants.add(request.user)
+        return redirect('room',pk=room.id)
+
+    context = {'room': room,'room_messages':room_messages,'Participants':participants}
     return render(request,'myapp_test/room.html',context)
 
 @login_required(login_url='login')
@@ -109,3 +125,17 @@ def delete_room(request,pk):
         return redirect('home')
 
     return render(request,'myapp_test/delete.html',{'obj':room})
+
+
+@login_required(login_url='login')
+def delete_message(request,pk):
+    message = Message.objects.get(id=pk)
+
+    if request.user != message.user:
+        return HttpResponse("Your are not the owner")
+
+    if request.method == 'POST':
+        message.delete()
+        return redirect('home')
+
+    return render(request,'myapp_test/delete.html',{'obj':message})
